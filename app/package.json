@@ -1,0 +1,14 @@
+{
+  "name": "taskmaster-api",
+  "version": "1.0.0",
+  "description": "SEC 385 TaskMaster API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --check server.js"
+  },
+  "dependencies": {
+    "express": "4.17.1",
+    "lodash": "4.17.19"
+  }
+}

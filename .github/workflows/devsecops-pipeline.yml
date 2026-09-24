@@ -1,4 +1,4 @@
-name: Security Gate - LESIS
+name: IA385 DevSecOps Pipeline
 
 on:
   push:
@@ -8,31 +8,163 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+
+  # ============================================================
+  # JOB 1: SOFTWARE COMPOSITION / SUPPLY-CHAIN ANALYSIS
+  # ============================================================
+  supply-chain-analysis:
+    name: SCA - Snyk and OWASP Dependency-Check
     runs-on: ubuntu-latest
-    env:
-      MAX_CRITICAL: 1
-      MAX_HIGH: 2
-      MAX_MEDIUM: 3
-      MAX_LOW: 4
-      GITHUB_TOKEN: ${{ secrets.TOKEN }}
+
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Pull Docker image from GitHub Container Registry
-      run: docker pull ghcr.io/instriq/security-gate/security-gate:latest
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
 
-    - name: Verify security alerts from dependabot
-      run: |
-        docker run ghcr.io/instriq/security-gate/security-gate:latest \
-        -t $GITHUB_TOKEN \
-        -r ${{ github.repository }} \
-        --critical $MAX_CRITICAL \
-        --high $MAX_HIGH \
-        --medium $MAX_MEDIUM \
-        --low $MAX_LOW \
-        --dependency-alerts \
-        --code-alerts \
-        --secret-alerts 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Node dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+
+      - name: Run Snyk Node dependency scan
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          snyk test \
+            --file=app/package.json \
+            --severity-threshold=high
+
+      - name: Run Snyk Python dependency scan
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          snyk test \
+            --file=requirements.txt \
+            --package-manager=pip \
+            --severity-threshold=high
+
+      - name: Run OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: "TaskMaster-API"
+          path: "."
+          format: "HTML"
+          out: "dependency-check-report"
+          args: >
+            --failOnCVSS 7
+
+      - name: Upload Dependency-Check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: dependency-check-report/
+
+
+  # ============================================================
+  # JOB 2: BUILD AND TEST
+  # ============================================================
+  build-and-test:
+    name: Build and Test with Docker Compose
+    needs: supply-chain-analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker Compose environment
+        run: docker compose build
+
+      - name: Start application
+        run: docker compose up -d
+
+      - name: Show container status
+        run: docker compose ps
+
+      - name: Wait for TaskMaster API
+        run: |
+          for i in {1..30}; do
+            if curl -f http://localhost:8080/health; then
+              echo "TaskMaster API is ready"
+              exit 0
+            fi
+            echo "Waiting for application..."
+            sleep 2
+          done
+
+          echo "Application failed to become ready"
+          docker compose logs
+          exit 1
+
+      - name: Test TaskMaster API
+        run: |
+          curl -f http://localhost:8080/
+          curl -f http://localhost:8080/health
+          curl -f http://localhost:8080/api/tasks
+
+      - name: Test Python service
+        run: |
+          curl -f http://localhost:5000/
+          curl -f http://localhost:5000/health
+
+      - name: Display container logs
+        if: always()
+        run: docker compose logs
+
+
+  # ============================================================
+  # JOB 3: DAST - OWASP ZAP
+  # ============================================================
+  dast:
+    name: DAST GATE
+    needs: build-and-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build application
+        run: docker compose build
+
+      - name: Start application
+        run: docker compose up -d
+
+      - name: Wait for application
+        run: |
+          for i in {1..30}; do
+            if curl -f http://localhost:8080/health; then
+              echo "Application is ready"
+              exit 0
+            fi
+            echo "Waiting for application..."
+            sleep 2
+          done
+
+          docker compose logs
+          exit 1
+
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: "http://localhost:8080"
+
+      - name: Shutdown application
+        if: always()
+        run: docker compose down
