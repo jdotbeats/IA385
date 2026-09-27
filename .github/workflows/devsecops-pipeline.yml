@@ -43,9 +43,9 @@ jobs:
 
       - name: Run Snyk Node dependency scan
         continue-on-error: true
+        timeout-minutes: 10
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-          SNYK_TIMEOUT_SECS: 60
         run: |
           snyk test \
             --file=app/package.json \
@@ -56,9 +56,9 @@ jobs:
 
       - name: Run Snyk Python dependency scan
         continue-on-error: true
+        timeout-minutes: 10
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-          SNYK_TIMEOUT_SECS: 60
         run: |
           snyk test \
             --file=requirements.txt \
