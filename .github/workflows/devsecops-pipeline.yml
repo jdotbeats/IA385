@@ -51,7 +51,7 @@ jobs:
             --file=app/package.json \
             --severity-threshold=high
 
-        - name: Install Python dependencies
+      - name: Install Python dependencies
         run: pip install -r requirements.txt
 
       - name: Run Snyk Python dependency scan
