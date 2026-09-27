@@ -168,8 +168,14 @@ jobs:
           exit 1
 
       - name: OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.12.0
-        with:
-          target: "http://localhost:8080"
-          allow_issue_writing: false
-          fail_action: false
+        run: |
+          docker run --rm \
+            --network host \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+            -t http://localhost:8080 \
+            -I
+
+      - name: Shutdown application
+        if: always()
+        run: docker compose down
