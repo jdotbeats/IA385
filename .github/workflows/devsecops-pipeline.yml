@@ -42,12 +42,12 @@ jobs:
         run: npm install -g snyk
 
       - name: Run Snyk Node dependency scan
+        uses: snyk/actions/node@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: |
-          timeout 5m snyk test \
-            --file=app/package.json \
-            --severity-threshold=high
+        with:
+          command: test
+          args: --file=app/package.json --severity-threshold=high
 
       - name: Run Snyk Python dependency scan
         env:
